@@ -74,8 +74,8 @@ Nyxie, sadece bir chatbot değil, aynı zamanda:
 
 ### 1. Depoyu Klonlama
 ```bash
-git clone https://github.com/stixyie/Nyxie-Protogen-Chatbot-Telegram-v2-main.git
-cd Nyxie-Protogen-Chatbot-Telegram-v2-main
+git clone https://github.com/stixyie/Nyxie-Protogen-Chatbot-Telegram-v3-main.git
+cd Nyxie-Protogen-Chatbot-Telegram-v3-main
 ```
 
 ### 2. Sanal Ortam Oluşturma

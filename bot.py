@@ -502,6 +502,32 @@ def get_analysis_prompt(media_type, caption, lang):
     # Return prompt in specified language, default to English
     return prompts.get(lang, prompts['en'])
 
+async def split_and_send_message(update: Update, text: str, max_length: int = 4096):
+    """Uzun mesajları böler ve sırayla gönderir"""
+    messages = []
+    current_message = ""
+    
+    # Mesajı satır satır böl
+    lines = text.split('\n')
+    
+    for line in lines:
+        # Eğer mevcut satır eklenince maksimum uzunluğu aşacaksa
+        if len(current_message + line + '\n') > max_length:
+            # Mevcut mesajı listeye ekle ve yeni mesaj başlat
+            if current_message:
+                messages.append(current_message.strip())
+            current_message = line + '\n'
+        else:
+            current_message += line + '\n'
+    
+    # Son mesajı ekle
+    if current_message:
+        messages.append(current_message.strip())
+    
+    # Mesajları sırayla gönder
+    for message in messages:
+        await update.message.reply_text(message)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = "Hello! I'm Nyxie, a Protogen created by Stixyie. I'm here to chat, help, and learn with you! Feel free to talk to me about anything or share images with me. I'll automatically detect your language and respond accordingly."
     await update.message.reply_text(welcome_message)
@@ -595,19 +621,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Save bot's response to memory
         user_memory.add_message(user_id, "assistant", response_text)
         
-        # Send response
-        await update.message.reply_text(response_text)
+        # Uzun mesajları böl ve gönder
+        await split_and_send_message(update, response_text)
         
     except Exception as e:
-        logger.error(f"Error in handle_message: {e}", exc_info=True)
-        # Generate error message in user's language using Gemini
-        error_prompt = f"Generate a polite error message in {user_settings.get('language', 'en')} language saying 'Sorry, I had trouble processing your message. Please try again.'"
-        try:
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
-            error_response = model.generate_content(error_prompt)
-            error_message = error_response.text
-        except:
-            error_message = "⚠️ Error processing message. Please try again."
+        logger.error(f"Mesaj işleme hatası: {e}")
+        error_message = "Üzgünüm, mesajını işlerken bir sorun oluştu. Lütfen tekrar dener misin? 🙏"
         await update.message.reply_text(error_message)
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -670,10 +689,11 @@ Kullanıcının sorusu: {caption}"""
         user_memory.add_message(user_id, "user", f"[Image] {caption}")
         user_memory.add_message(user_id, "assistant", response_text)
         
-        await update.message.reply_text(response_text)
+        # Uzun mesajları böl ve gönder
+        await split_and_send_message(update, response_text)
         
     except Exception as e:
-        logger.error(f"Error processing image: {e}")
+        logger.error(f"Görsel işleme hatası: {e}")
         error_message = "Üzgünüm, bu görseli işlerken bir sorun oluştu. Lütfen tekrar dener misin? 🙏"
         await update.message.reply_text(error_message)
 
@@ -741,7 +761,8 @@ Kullanıcının sorusu: {caption}"""
             user_memory.add_message(user_id, "user", f"[Video] {caption}")
             user_memory.add_message(user_id, "assistant", response_text)
             
-            await update.message.reply_text(response_text)
+            # Uzun mesajları böl ve gönder
+            await split_and_send_message(update, response_text)
             
         except Exception as e:
             if "Token limit exceeded" in str(e):
@@ -778,7 +799,7 @@ Kullanıcının sorusu: {caption}"""
                 raise
                 
     except Exception as e:
-        logger.error(f"Error processing video: {e}")
+        logger.error(f"Video işleme hatası: {e}")
         error_prompt = f"""You are a helpful AI assistant. Generate a polite error message in the same language as: {personality_context}
         Say: 'Sorry, I had trouble processing that video. Please try again.'
         Make it sound natural and friendly."""
@@ -789,6 +810,14 @@ Kullanıcının sorusu: {caption}"""
         except:
             error_message = "⚠️ Error processing video. Please try again."
         await update.message.reply_text(error_message)
+
+async def handle_token_limit_error(update: Update):
+    error_message = "Üzgünüm, mesaj geçmişi çok uzun olduğu için yanıt veremedim. Biraz bekleyip tekrar dener misin? 🙏"
+    await update.message.reply_text(error_message)
+
+async def handle_memory_error(update: Update):
+    error_message = "Üzgünüm, bellek sınırına ulaşıldı. Lütfen biraz bekleyip tekrar dener misin? 🙏"
+    await update.message.reply_text(error_message)
 
 def main():
     # Initialize bot
