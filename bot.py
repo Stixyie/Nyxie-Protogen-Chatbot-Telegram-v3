@@ -504,6 +504,10 @@ def get_analysis_prompt(media_type, caption, lang):
 
 async def split_and_send_message(update: Update, text: str, max_length: int = 4096):
     """Uzun mesajları böler ve sırayla gönderir"""
+    if not text:  # Boş mesaj kontrolü
+        await update.message.reply_text("Üzgünüm, bir yanıt oluşturamadım. Lütfen tekrar dener misin? 🙏")
+        return
+        
     messages = []
     current_message = ""
     
@@ -511,22 +515,31 @@ async def split_and_send_message(update: Update, text: str, max_length: int = 40
     lines = text.split('\n')
     
     for line in lines:
+        if not line:  # Boş satır kontrolü
+            continue
+            
         # Eğer mevcut satır eklenince maksimum uzunluğu aşacaksa
         if len(current_message + line + '\n') > max_length:
             # Mevcut mesajı listeye ekle ve yeni mesaj başlat
-            if current_message:
+            if current_message.strip():  # Boş mesaj kontrolü
                 messages.append(current_message.strip())
             current_message = line + '\n'
         else:
             current_message += line + '\n'
     
     # Son mesajı ekle
-    if current_message:
+    if current_message.strip():  # Boş mesaj kontrolü
         messages.append(current_message.strip())
     
+    # Eğer hiç mesaj oluşturulmadıysa
+    if not messages:
+        await update.message.reply_text("Üzgünüm, bir yanıt oluşturamadım. Lütfen tekrar dener misin? 🙏")
+        return
+        
     # Mesajları sırayla gönder
     for message in messages:
-        await update.message.reply_text(message)
+        if message.strip():  # Son bir boş mesaj kontrolü
+            await update.message.reply_text(message)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = "Hello! I'm Nyxie, a Protogen created by Stixyie. I'm here to chat, help, and learn with you! Feel free to talk to me about anything or share images with me. I'll automatically detect your language and respond accordingly."
