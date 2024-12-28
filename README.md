@@ -32,9 +32,7 @@ Nyxie, sadece bir chatbot değil, aynı zamanda:
 - Türkçe dil desteği sadece video ve resim analizlerinde 
 
 ### 2. 🌦️ Hava Durumu Bilgilendirmesi
-- Gerçek zamanlı hava durumu sorgulaması
-- Şehre özel detaylı hava durumu raporları
-- Emoji ile zenginleştirilmiş hava durumu açıklamaları
+Hava durumu özelliği kaldırılmıştır.
 
 ### 3. 🕒 Zamansal Kişilik Uyarlaması
 - Günün saatine göre dinamik kişilik ayarları
@@ -95,15 +93,11 @@ pip install -r requirements.txt
 ### Gerekli API Anahtarları
 `.env` dosyasında aşağıdaki API anahtarlarını yapılandırın:
 - `TELEGRAM_BOT_TOKEN`: Telegram Bot Token
-- `GEMINI_API_KEY`: Google Gemini API Anahtarı
-- `OPENWEATHER_API_KEY`: OpenWeatherMap API Anahtarı
 - `GOOGLE_APPLICATION_CREDENTIALS`: Google Cloud Vision için kimlik bilgileri
 
 ### Örnek `.env` Dosyası
 ```
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-GEMINI_API_KEY=your_gemini_api_key
-OPENWEATHER_API_KEY=your_openweather_api_key
 GOOGLE_APPLICATION_CREDENTIALS=path/to/credentials.json
 ```
 
@@ -117,7 +111,7 @@ python bot.py
 ### Telegram'da Kullanım
 1. Bot'a `/start` komutu ile başlayın
 2. Mesaj, görüntü veya video gönderin
-3. Hava durumu, çeviri veya sohbet için bot ile etkileşime geçin
+3. Sohbet için bot ile etkileşime geçin
 
 ## 🛡️ Güvenlik
 
@@ -144,7 +138,6 @@ Bu proje GPL-3.0 Lisansı altında yayınlanmıştır. Detaylar için `LICENSE` 
 
 - **Stixyie**: Proje yaratıcısı ve baş geliştirici
 - **Google**: Gemini ve Cloud Vision API'ları
-- **Telegram**: Bot altyapısı
 
 ---
 

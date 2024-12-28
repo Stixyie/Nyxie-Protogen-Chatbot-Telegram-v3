@@ -251,163 +251,6 @@ class UserMemory:
         
         return context
 
-def get_weather_data(city):
-    """Get weather data for a specific city"""
-    try:
-        api_key = os.getenv("OPENWEATHER_API_KEY")
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
-        return None
-    except Exception as e:
-        logger.error(f"Error getting weather data: {e}")
-        return None
-
-def get_weather_description(weather_data, lang='tr'):
-    """Get weather description in user's language with emojis"""
-    if not weather_data:
-        return None
-    
-    weather_emojis = {
-        'Clear': '☀️',
-        'Clouds': '☁️',
-        'Rain': '🌧️',
-        'Snow': '❄️',
-        'Thunderstorm': '⛈️',
-        'Drizzle': '🌦️',
-        'Mist': '🌫️',
-        'Fog': '🌫️',
-        'Haze': '🌫️'
-    }
-    
-    translations = {
-        'tr': {
-            'Clear': 'Açık',
-            'Clouds': 'Bulutlu',
-            'Rain': 'Yağmurlu',
-            'Snow': 'Karlı',
-            'Thunderstorm': 'Fırtınalı',
-            'Drizzle': 'Çiseli',
-            'Mist': 'Sisli',
-            'Fog': 'Sisli',
-            'Haze': 'Puslu',
-            'temp': 'Sıcaklık',
-            'humidity': 'Nem',
-            'wind': 'Rüzgar hızı'
-        },
-        'en': {
-            'Clear': 'Clear',
-            'Clouds': 'Cloudy',
-            'Rain': 'Rainy',
-            'Snow': 'Snowy',
-            'Thunderstorm': 'Thunderstorm',
-            'Drizzle': 'Drizzle',
-            'Mist': 'Misty',
-            'Fog': 'Foggy',
-            'Haze': 'Hazy',
-            'temp': 'Temperature',
-            'humidity': 'Humidity',
-            'wind': 'Wind speed'
-        }
-    }
-    
-    lang = lang if lang in translations else 'en'
-    trans = translations[lang]
-    
-    main_weather = weather_data['weather'][0]['main']
-    emoji = weather_emojis.get(main_weather, '🌡️')
-    
-    temp = weather_data['main']['temp']
-    humidity = weather_data['main']['humidity']
-    wind_speed = weather_data['wind']['speed']
-    
-    if lang == 'tr':
-        return f"{emoji} {trans[main_weather]}\n" \
-               f"🌡️ {trans['temp']}: {temp}°C\n" \
-               f"💧 {trans['humidity']}: %{humidity}\n" \
-               f"💨 {trans['wind']}: {wind_speed} m/s"
-    else:
-        return f"{emoji} {trans[main_weather]}\n" \
-               f"🌡️ {trans['temp']}: {temp}°C\n" \
-               f"💧 {trans['humidity']}: {humidity}%\n" \
-               f"💨 {trans['wind']}: {wind_speed} m/s"
-
-def detect_location_from_message(message_text):
-    """Detect location mentions in user message"""
-    # Validate input
-    if not message_text or not isinstance(message_text, str):
-        logger.warning(f"Invalid message text: {message_text}")
-        return None
-    
-    message_lower = message_text.lower()
-    
-    # Extensive common cities dictionary with more details
-    common_cities = {
-        # Turkey
-        'istanbul': {'city': 'Istanbul', 'country': 'Turkey', 'timezone': 'Europe/Istanbul', 'keywords': ['istanbul', 'i̇stanbul']},
-        'ankara': {'city': 'Ankara', 'country': 'Turkey', 'timezone': 'Europe/Istanbul', 'keywords': ['ankara']},
-        'izmir': {'city': 'Izmir', 'country': 'Turkey', 'timezone': 'Europe/Istanbul', 'keywords': ['izmir']},
-        'antalya': {'city': 'Antalya', 'country': 'Turkey', 'timezone': 'Europe/Istanbul', 'keywords': ['antalya']},
-        'bursa': {'city': 'Bursa', 'country': 'Turkey', 'timezone': 'Europe/Istanbul', 'keywords': ['bursa']},
-        
-        # International
-        'london': {'city': 'London', 'country': 'UK', 'timezone': 'Europe/London', 'keywords': ['london', 'uk', 'united kingdom']},
-        'new york': {'city': 'New York', 'country': 'USA', 'timezone': 'America/New_York', 'keywords': ['new york', 'nyc', 'new york city']},
-        'tokyo': {'city': 'Tokyo', 'country': 'Japan', 'timezone': 'Asia/Tokyo', 'keywords': ['tokyo', 'japan']},
-        'paris': {'city': 'Paris', 'country': 'France', 'timezone': 'Europe/Paris', 'keywords': ['paris', 'france']},
-        'berlin': {'city': 'Berlin', 'country': 'Germany', 'timezone': 'Europe/Berlin', 'keywords': ['berlin', 'germany']},
-        'dubai': {'city': 'Dubai', 'country': 'UAE', 'timezone': 'Asia/Dubai', 'keywords': ['dubai', 'uae', 'emirates']}
-    }
-    
-    # Location detection patterns in multiple languages
-    location_patterns = {
-        'tr': [
-            r'(şu an |şuan |şimdi )?(ben )?([\w\s]+)\'?d[ae]y[ıi]m',
-            r'(ben )?([\w\s]+)\'?d[ae] yaşıyorum',
-            r'(benim )?yerim ([\w\s]+)',
-            r'(benim )?konumum ([\w\s]+)'
-        ],
-        'en': [
-            r"i'?m (currently |now )?in ([\w\s]+)",
-            r"i live in ([\w\s]+)",
-            r"my location is ([\w\s]+)",
-            r"i'?m from ([\w\s]+)"
-        ]
-    }
-    
-    # First, check for exact matches in common cities
-    for city_info in common_cities.values():
-        if any(keyword in message_lower for keyword in city_info['keywords']):
-            return {
-                'city': city_info['city'],
-                'country': city_info['country'],
-                'timezone': city_info['timezone']
-            }
-    
-    # Try to detect location using regex patterns
-    for lang, patterns in location_patterns.items():
-        for pattern in patterns:
-            import re
-            match = re.search(pattern, message_lower, re.IGNORECASE)
-            if match:
-                # Check if match has at least 2 groups
-                if len(match.groups()) >= 2 and match.group(2):
-                    potential_location = match.group(2).strip()
-                    
-                    # Check if potential location matches any common city
-                    for city_lower, city_info in common_cities.items():
-                        if potential_location.lower() in city_info['keywords']:
-                            return {
-                                'city': city_info['city'],
-                                'country': city_info['country'],
-                                'timezone': city_info['timezone']
-                            }
-                else:
-                    logger.warning(f"Location match found but insufficient groups: {match.groups()}")
-    
-    return None
-
 def detect_language_intent(message_text):
     """Detect if user wants to change language from natural language"""
     message_lower = message_text.lower()
@@ -612,14 +455,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"User settings updated: {settings_change}")
             
             # Detect location mentions
-            location = detect_location_from_message(message_text)
+            location = None  # Removed detect_location_from_message function call
             if location:
                 logger.info(f"Location detected: {location}")
-                weather_data = get_weather_data(location.get('city'))
-                if weather_data:
-                    weather_description = get_weather_description(weather_data, user_lang)
-                    await update.message.reply_text(weather_description)
-                    return
+                # Removed get_weather_data and get_weather_description function calls
+                # await update.message.reply_text(weather_description)
+                return
             
             # Prepare context for AI response
             try:

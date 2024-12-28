@@ -2,8 +2,6 @@ python-telegram-bot
 google-generativeai
 python-dotenv
 requests
-geopy
-timezonefinder
 emoji
 langdetect
 Pillow==10.1.0
