@@ -1,0 +1,11 @@
+python-telegram-bot
+google-generativeai
+python-dotenv
+requests
+geopy
+timezonefinder
+emoji
+langdetect
+Pillow==10.1.0
+httpx==0.26.0
+google-cloud-vision==3.5.0
