@@ -335,6 +335,11 @@ def get_weather_description(weather_data, lang='tr'):
 
 def detect_location_from_message(message_text):
     """Detect location mentions in user message"""
+    # Validate input
+    if not message_text or not isinstance(message_text, str):
+        logger.warning(f"Invalid message text: {message_text}")
+        return None
+    
     message_lower = message_text.lower()
     
     # Extensive common cities dictionary with more details
@@ -386,16 +391,20 @@ def detect_location_from_message(message_text):
             import re
             match = re.search(pattern, message_lower, re.IGNORECASE)
             if match:
-                potential_location = match.group(2).strip()
-                
-                # Check if potential location matches any common city
-                for city_lower, city_info in common_cities.items():
-                    if potential_location.lower() in city_info['keywords']:
-                        return {
-                            'city': city_info['city'],
-                            'country': city_info['country'],
-                            'timezone': city_info['timezone']
-                        }
+                # Check if match has at least 2 groups
+                if len(match.groups()) >= 2 and match.group(2):
+                    potential_location = match.group(2).strip()
+                    
+                    # Check if potential location matches any common city
+                    for city_lower, city_info in common_cities.items():
+                        if potential_location.lower() in city_info['keywords']:
+                            return {
+                                'city': city_info['city'],
+                                'country': city_info['country'],
+                                'timezone': city_info['timezone']
+                            }
+                else:
+                    logger.warning(f"Location match found but insufficient groups: {match.groups()}")
     
     return None
 
@@ -546,99 +555,129 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_message)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Comprehensive logging for debugging
+    logger.info("Entering handle_message function")
+    
     try:
+        # Validate update object
+        if not update:
+            logger.error("Update object is None")
+            return
+        
+        # Validate message
+        if not update.message:
+            logger.error("Message is None in update object")
+            return
+        
+        # Log message details for debugging
+        logger.info(f"Message received: {update.message}")
+        logger.info(f"Message text: {update.message.text}")
+        logger.info(f"Message type: {type(update.message)}")
+        
         user_id = str(update.effective_user.id)
-        message_text = update.message.text
+        logger.info(f"User ID: {user_id}")
         
-        # Start typing indicator
-        await update.message.chat.send_action(action=ChatAction.TYPING)
-        
-        # Ensure user memory is loaded
-        if user_id not in user_memory.users:
-            user_memory.load_user_memory(user_id)
-        
-        # Get current user settings
+        # Get user's current language settings from memory
         user_settings = user_memory.get_user_settings(user_id)
+        user_lang = user_settings.get('language', 'tr')  # Default to Turkish if not set
+        logger.info(f"User language: {user_lang}")
         
-        # Check for location mentions in message
-        location_info = detect_location_from_message(message_text)
-        if location_info:
-            user_memory.update_user_settings(user_id, {
-                'preferences': {
-                    **user_settings.get('preferences', {}),
-                    'city': location_info['city'],
-                    'country': location_info['country'],
-                    'timezone': location_info['timezone']
-                }
-            })
-            user_settings = user_memory.get_user_settings(user_id)
+        # Check for media types
+        if update.message.photo:
+            logger.info("Photo detected, calling handle_image")
+            await handle_image(update, context)
+            return
         
-        # Check for language change intent in natural language
-        language_intent = detect_language_intent(message_text)
-        if language_intent:
-            user_memory.update_user_settings(user_id, {
-                'preferences': {
-                    **user_settings.get('preferences', {}),
-                    'custom_language': language_intent
-                }
-            })
-            detected_language = language_intent
+        if update.message.video:
+            logger.info("Video detected, calling handle_video")
+            await handle_video(update, context)
+            return
+        
+        # Process text messages
+        if update.message.text:
+            # Normalize and strip the message text
+            message_text = update.message.text.strip()
+            logger.info(f"Processed message text: {message_text}")
+            
+            # Language detection and settings
+            detected_lang = detect_language_intent(message_text)
+            if detected_lang:
+                user_memory.update_user_settings(user_id, {'language': detected_lang})
+                logger.info(f"Language updated to: {detected_lang}")
+            
+            # Check for settings changes
+            settings_change = detect_settings_from_message(message_text)
+            if settings_change:
+                user_memory.update_user_settings(user_id, settings_change)
+                logger.info(f"User settings updated: {settings_change}")
+            
+            # Detect location mentions
+            location = detect_location_from_message(message_text)
+            if location:
+                logger.info(f"Location detected: {location}")
+                weather_data = get_weather_data(location.get('city'))
+                if weather_data:
+                    weather_description = get_weather_description(weather_data, user_lang)
+                    await update.message.reply_text(weather_description)
+                    return
+            
+            # Prepare context for AI response
+            try:
+                # Retrieve relevant conversation context
+                context_messages = user_memory.get_relevant_context(user_id)
+                
+                # Prepare personality context
+                personality_context = get_time_aware_personality(
+                    datetime.now(), 
+                    user_lang,
+                    user_settings.get('timezone', 'Europe/Istanbul')
+                )
+                
+                # Construct AI prompt
+                ai_prompt = f"""DİKKAT: BU YANITI TAMAMEN TÜRKÇE VERECEKSIN!
+SADECE TÜRKÇE KULLAN! KESİNLİKLE BAŞKA DİL KULLANMA!
+
+{personality_context}
+
+Görevin: Kullanıcının mesajını Türkçe olarak zeki ve samimi bir şekilde yanıtla.
+Rol: Sen Nyxie'sin ve kullanıcıyla Türkçe sohbet ediyorsun.
+
+Yönergeler:
+1. SADECE TÜRKÇE KULLAN
+2. Doğal ve samimi bir dil kullan
+3. Kültürel bağlama uygun ol
+4. Kısa ve öz cevaplar ver
+
+Kullanıcının mesajı: {message_text}"""
+                
+                # Generate AI response
+                model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                response = model.generate_content(ai_prompt)
+                
+                # Extract response text
+                response_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+                
+                # Add emojis
+                response_text = add_random_emojis(response_text)
+                
+                # Save interaction to memory
+                user_memory.add_message(user_id, "user", message_text)
+                user_memory.add_message(user_id, "assistant", response_text)
+                
+                # Send response
+                await split_and_send_message(update, response_text)
+            
+            except Exception as ai_error:
+                logger.error(f"AI response generation error: {ai_error}", exc_info=True)
+                error_message = "Üzgünüm, yanıt oluştururken bir sorun yaşadım. Lütfen tekrar deneyin. 🙏"
+                await update.message.reply_text(error_message)
+        
         else:
-            detected_language = user_settings['preferences'].get('custom_language')
-            if not detected_language:
-                try:
-                    detected_language = langdetect.detect(message_text)
-                    user_memory.update_user_settings(user_id, {
-                        'preferences': {
-                            **user_settings.get('preferences', {}),
-                            'detected_language': detected_language
-                        }
-                    })
-                except:
-                    detected_language = 'tr'
-        
-        # Get weather data if user's location is known
-        weather_info = ""
-        if user_settings.get('preferences', {}).get('city'):
-            weather_data = get_weather_data(user_settings['preferences']['city'])
-            if weather_data:
-                weather_info = get_weather_description(weather_data, detected_language)
-        
-        # Add message to memory
-        user_memory.add_message(user_id, "user", message_text)
-        
-        # Get conversation history
-        conversation_history = user_memory.get_relevant_context(user_id)
-        
-        # Create time-aware personality context with location and weather
-        timezone_name = user_settings.get('preferences', {}).get('timezone', 'Europe/Istanbul')
-        current_time = datetime.now(pytz.timezone(timezone_name))
-        personality_context = get_time_aware_personality(current_time, detected_language, timezone_name)
-        
-        # Add location and weather context to prompt
-        location_context = f"\nLocation: {user_settings.get('preferences', {}).get('city', 'Unknown')}, {user_settings.get('preferences', {}).get('country', 'Unknown')}"
-        if weather_info:
-            location_context += f"\nCurrent Weather:\n{weather_info}"
-        
-        # Prepare Gemini prompt
-        prompt = f"{personality_context}\n{location_context}\n\nConversation History:\n{conversation_history}\n\nUser: {message_text}"
-        
-        # Get response from Gemini
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        response = model.generate_content(prompt)
-        response_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
-        
-        # Add culturally appropriate emojis
-        response_text = add_random_emojis(response_text)
-        
-        # Save bot's response to memory
-        user_memory.add_message(user_id, "assistant", response_text)
-        
-        # Uzun mesajları böl ve gönder
-        await split_and_send_message(update, response_text)
-        
+            logger.warning("Unhandled message type received")
+            await update.message.reply_text("Bu mesaj türünü şu anda işleyemiyorum. 🤔")
+    
     except Exception as e:
-        logger.error(f"Mesaj işleme hatası: {e}")
+        logger.error(f"Mesaj işleme hatası: {e}", exc_info=True)
         error_message = "Üzgünüm, mesajını işlerken bir sorun oluştu. Lütfen tekrar dener misin? 🙏"
         await update.message.reply_text(error_message)
 
@@ -646,17 +685,59 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     
     try:
+        # Enhanced logging for debugging
+        logger.info(f"Starting image processing for user {user_id}")
+        
+        # Validate message and photo
+        if not update.message:
+            logger.warning("No message found in update")
+            await update.message.reply_text("⚠️ Görsel bulunamadı. Lütfen tekrar deneyin.")
+            return
+        
         # Get user's current language settings from memory
         user_settings = user_memory.get_user_settings(user_id)
         user_lang = user_settings.get('language', 'tr')  # Default to Turkish if not set
+        logger.info(f"User language: {user_lang}")
+        
+        # Check if photo exists
+        if not update.message.photo:
+            logger.warning("No photo found in the message")
+            await update.message.reply_text("⚠️ Görsel bulunamadı. Lütfen tekrar deneyin.")
+            return
         
         # Get the largest available photo
-        photo = max(update.message.photo, key=lambda x: x.file_size)
-        photo_file = await context.bot.get_file(photo.file_id)
-        photo_bytes = bytes(await photo_file.download_as_bytearray())
+        try:
+            photo = max(update.message.photo, key=lambda x: x.file_size)
+        except Exception as photo_error:
+            logger.error(f"Error selecting photo: {photo_error}")
+            await update.message.reply_text("⚠️ Görsel seçiminde hata oluştu. Lütfen tekrar deneyin.")
+            return
         
-        # Create dynamic prompt in user's language
-        caption = update.message.caption or get_analysis_prompt('image', None, user_lang)
+        # Download photo
+        try:
+            photo_file = await context.bot.get_file(photo.file_id)
+            photo_bytes = bytes(await photo_file.download_as_bytearray())
+        except Exception as download_error:
+            logger.error(f"Photo download error: {download_error}")
+            await update.message.reply_text("⚠️ Görsel indirilemedi. Lütfen tekrar deneyin.")
+            return
+        
+        logger.info(f"Photo bytes downloaded: {len(photo_bytes)} bytes")
+        
+        # Comprehensive caption handling with extensive logging
+        caption = update.message.caption
+        logger.info(f"Original caption: {caption}")
+        
+        default_prompt = get_analysis_prompt('image', None, user_lang)
+        logger.info(f"Default prompt: {default_prompt}")
+        
+        # Ensure caption is not None
+        if caption is None:
+            caption = default_prompt or "Bu resmi detaylı bir şekilde analiz et ve açıkla."
+        
+        # Ensure caption is a string and stripped
+        caption = str(caption).strip()
+        logger.info(f"Final processed caption: {caption}")
         
         # Create a context-aware prompt that includes language preference
         personality_context = get_time_aware_personality(
@@ -665,14 +746,17 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_settings.get('timezone', 'Europe/Istanbul')
         )
         
+        if not personality_context:
+            personality_context = "Sen Nyxie'sin ve resimleri analiz ediyorsun."  # Fallback personality
+        
         # Force Turkish analysis for all users
         analysis_prompt = f"""DİKKAT: BU ANALİZİ TAMAMEN TÜRKÇE YAPACAKSIN!
 SADECE TÜRKÇE KULLAN! KESİNLİKLE BAŞKA DİL KULLANMA!
 
 {personality_context}
 
-Görevin: Bu görseli Türkçe olarak analiz et ve açıkla.
-Rol: Sen Nyxie'sin ve bu görseli Türkçe açıklıyorsun.
+Görevin: Bu resmi Türkçe olarak analiz et ve açıkla.
+Rol: Sen Nyxie'sin ve bu resmi Türkçe açıklıyorsun.
 
 Yönergeler:
 1. SADECE TÜRKÇE KULLAN
@@ -688,43 +772,84 @@ Lütfen analiz et:
 
 Kullanıcının sorusu: {caption}"""
         
-        # Prepare the message with both text and image
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        response = model.generate_content([
-            analysis_prompt, 
-            {"mime_type": "image/jpeg", "data": photo_bytes}
-        ])
+        try:
+            # Prepare the message with both text and image
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            response = model.generate_content([
+                analysis_prompt, 
+                {"mime_type": "image/jpeg", "data": photo_bytes}
+            ])
+            
+            response_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+            
+            # Add culturally appropriate emojis
+            response_text = add_random_emojis(response_text)
+            
+            # Save the interaction
+            user_memory.add_message(user_id, "user", f"[Image] {caption}")
+            user_memory.add_message(user_id, "assistant", response_text)
+            
+            # Uzun mesajları böl ve gönder
+            await split_and_send_message(update, response_text)
         
-        response_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
-        response_text = add_random_emojis(response_text)
-        
-        # Save the interaction
-        user_memory.add_message(user_id, "user", f"[Image] {caption}")
-        user_memory.add_message(user_id, "assistant", response_text)
-        
-        # Uzun mesajları böl ve gönder
-        await split_and_send_message(update, response_text)
-        
-    except Exception as e:
-        logger.error(f"Görsel işleme hatası: {e}")
-        error_message = "Üzgünüm, bu görseli işlerken bir sorun oluştu. Lütfen tekrar dener misin? 🙏"
-        await update.message.reply_text(error_message)
+        except Exception as processing_error:
+            logger.error(f"Görsel işleme hatası: {processing_error}", exc_info=True)
+            error_message = "Üzgünüm, bu görseli işlerken bir sorun oluştu. Lütfen tekrar dener misin? 🙏"
+            await update.message.reply_text(error_message)
+    
+    except Exception as critical_error:
+        logger.error(f"Kritik görsel işleme hatası: {critical_error}", exc_info=True)
+        await update.message.reply_text("Üzgünüm, görseli işlerken kritik bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     
     try:
+        # Enhanced logging for debugging
+        logger.info(f"Starting video processing for user {user_id}")
+        
+        # Validate message and video
+        if not update.message:
+            logger.warning("No message found in update")
+            await update.message.reply_text("⚠️ Video bulunamadı. Lütfen tekrar deneyin.")
+            return
+        
         # Get user's current language settings from memory
         user_settings = user_memory.get_user_settings(user_id)
         user_lang = user_settings.get('language', 'tr')  # Default to Turkish if not set
+        logger.info(f"User language: {user_lang}")
+        
+        # Check if video exists
+        if not update.message.video:
+            logger.warning("No video found in the message")
+            await update.message.reply_text("⚠️ Video bulunamadı. Lütfen tekrar deneyin.")
+            return
         
         # Get the video file
         video = update.message.video
+        if not video:
+            logger.warning("No video found in the message")
+            await update.message.reply_text("⚠️ Video bulunamadı. Lütfen tekrar deneyin.")
+            return
+            
         video_file = await context.bot.get_file(video.file_id)
         video_bytes = bytes(await video_file.download_as_bytearray())
+        logger.info(f"Video bytes downloaded: {len(video_bytes)} bytes")
         
-        # Create dynamic prompt in user's language
-        caption = update.message.caption or get_analysis_prompt('video', None, user_lang)
+        # Comprehensive caption handling with extensive logging
+        caption = update.message.caption
+        logger.info(f"Original caption: {caption}")
+        
+        default_prompt = get_analysis_prompt('video', None, user_lang)
+        logger.info(f"Default prompt: {default_prompt}")
+        
+        # Ensure caption is not None
+        if caption is None:
+            caption = default_prompt or "Bu videoyu detaylı bir şekilde analiz et ve açıkla."
+        
+        # Ensure caption is a string and stripped
+        caption = str(caption).strip()
+        logger.info(f"Final processed caption: {caption}")
         
         # Create a context-aware prompt that includes language preference
         personality_context = get_time_aware_personality(
@@ -732,6 +857,9 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_lang,
             user_settings.get('timezone', 'Europe/Istanbul')
         )
+        
+        if not personality_context:
+            personality_context = "Sen Nyxie'sin ve videoları analiz ediyorsun."  # Fallback personality
         
         # Force Turkish analysis for all users
         analysis_prompt = f"""DİKKAT: BU ANALİZİ TAMAMEN TÜRKÇE YAPACAKSIN!
@@ -776,53 +904,35 @@ Kullanıcının sorusu: {caption}"""
             
             # Uzun mesajları böl ve gönder
             await split_and_send_message(update, response_text)
+        
+        except Exception as processing_error:
+            logger.error(f"Video processing error: {processing_error}", exc_info=True)
             
-        except Exception as e:
-            if "Token limit exceeded" in str(e):
+            if "Token limit exceeded" in str(processing_error):
                 logger.warning(f"Token limit exceeded for user {user_id}, removing oldest messages")
-                while True:
-                    try:
-                        if user_memory.users[user_id]["messages"]:
-                            user_memory.users[user_id]["messages"].pop(0)
-                            model = genai.GenerativeModel('gemini-2.0-flash-exp')
-                            response = model.generate_content([
-                                analysis_prompt,
-                                {"mime_type": "video/mp4", "data": video_bytes}
-                            ])
-                            response_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
-                            response_text = add_random_emojis(response_text)
-                            break
-                        else:
-                            error_prompt = f"""You are a helpful AI assistant. Generate a polite error message in the same language as: {personality_context}
-                            Say: 'Sorry, I couldn't process your video due to memory constraints.'
-                            Make it sound natural and friendly."""
-                            try:
-                                model = genai.GenerativeModel('gemini-2.0-flash-exp')
-                                error_response = model.generate_content(error_prompt)
-                                error_message = error_response.text
-                            except:
-                                error_message = "⚠️ Memory limit exceeded. Please try again."
-                            response_text = error_message
-                            break
-                    except Exception:
-                        continue
-                
-                await update.message.reply_text(response_text)
+                try:
+                    if user_memory.users[user_id]["messages"]:
+                        user_memory.users[user_id]["messages"].pop(0)
+                        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                        response = model.generate_content([
+                            analysis_prompt,
+                            {"mime_type": "video/mp4", "data": video_bytes}
+                        ])
+                        response_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+                        response_text = add_random_emojis(response_text)
+                        await update.message.reply_text(response_text)
+                    else:
+                        await update.message.reply_text("⚠️ Üzgünüm, videonuzu işlerken hafıza sınırına ulaştım. Lütfen tekrar deneyin.")
+                except Exception as retry_error:
+                    logger.error(f"Retry error: {retry_error}", exc_info=True)
+                    await update.message.reply_text("⚠️ Üzgünüm, videonuzu işlerken bir hata oluştu. Lütfen tekrar deneyin.")
             else:
-                raise
-                
+                # Generic error handling
+                await update.message.reply_text("⚠️ Üzgünüm, videonuzu işlerken bir hata oluştu. Lütfen tekrar deneyin.")
+    
     except Exception as e:
-        logger.error(f"Video işleme hatası: {e}")
-        error_prompt = f"""You are a helpful AI assistant. Generate a polite error message in the same language as: {personality_context}
-        Say: 'Sorry, I had trouble processing that video. Please try again.'
-        Make it sound natural and friendly."""
-        try:
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
-            error_response = model.generate_content(error_prompt)
-            error_message = error_response.text
-        except:
-            error_message = "⚠️ Error processing video. Please try again."
-        await update.message.reply_text(error_message)
+        logger.error(f"Kritik video işleme hatası: {e}", exc_info=True)
+        await update.message.reply_text("⚠️ Üzgünüm, videonuzu işlerken kritik bir hata oluştu. Lütfen tekrar deneyin.")
 
 async def handle_token_limit_error(update: Update):
     error_message = "Üzgünüm, mesaj geçmişi çok uzun olduğu için yanıt veremedim. Biraz bekleyip tekrar dener misin? 🙏"
