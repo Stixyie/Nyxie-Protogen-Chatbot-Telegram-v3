@@ -122,7 +122,7 @@ python bot.py
 ## 🤝 Destek
 
 ### Sorun Bildirim
-- GitHub Issues: [Proje Sayfası](https://github.com/stixyie/Nyxie-Protogen-Chatbot-Telegram-v2-main/issues)
+- GitHub Issues: [Proje Sayfası](https://github.com/stixyie/Nyxie-Protogen-Chatbot-Telegram-v3-main/issues)
 
 ### Katkıda Bulunma
 1. Projeyi forklayın
